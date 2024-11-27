@@ -9,7 +9,7 @@ Since I live in Japan, most of the broadcasts on the shortwave band are music an
 
 # TIPS
 
-10-25 ms for sweeps.
+20-50 ms for sweeps.
 100-250 ms for random.
 
 these numbers are just the right interval for a bluff ghost hunter program.
