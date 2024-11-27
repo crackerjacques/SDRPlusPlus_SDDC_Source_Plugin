@@ -9,7 +9,7 @@ And I don't have enough pocket money to order at the moment.
 
 # HOWTO
 
-reserve.
+Preparing
 ```
 git clone https://github.com/AlexandreRouma/SDRPlusPlus.git
 git clone https://github.com/crackerjacques/SDRPlusPlus_SDDC_Source_Plugin.git
