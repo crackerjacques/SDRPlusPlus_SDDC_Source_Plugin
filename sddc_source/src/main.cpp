@@ -1,4 +1,4 @@
-#include <module.h>  // これを最初に
+#include <module.h>  
 #include <utils/flog.h>
 #include <signal_path/signal_path.h>
 #include <core.h>
