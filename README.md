@@ -1,5 +1,5 @@
 # SDRPlusPlus_SDDC_Source_Plugin
-RX888 MK2 for SDR++ Plugin
+RX888 MK2 for SDR++ Plugin(WIP)
 
 
 # WIP.
@@ -49,3 +49,7 @@ make
 sudo make install
 
 ```
+
+I was able to confirm that it was compiled and displayed in the menu.
+I'll say it twice because it's important.
+I don't know if it will work yet.
