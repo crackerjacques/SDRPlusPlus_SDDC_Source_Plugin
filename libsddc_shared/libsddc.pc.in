@@ -1,0 +1,11 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: libsddc
+Description: SDDC (Software Defined Digital Converter) Library
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lsddc
+Cflags: -I${includedir}
+Requires: libusb-1.0
