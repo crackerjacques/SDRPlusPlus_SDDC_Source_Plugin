@@ -11,7 +11,6 @@ https://github.com/juce-framework/JUCE
 copy this dir to your SDRPP sink_modules dir .
 ```
 cp -r SDRPlusPlus_SDDC_Source_Plugin/fxaudio_sink  SDRPlusPlus/sink_modules
-
 ```
 
 and edit CMakeLists.txt on SDRPP root dir
