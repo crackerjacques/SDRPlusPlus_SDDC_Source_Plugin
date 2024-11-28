@@ -7,7 +7,7 @@ git clone https://github.com/ik1xpv/ExtIO_sddc.git
 
 cp -r sddc_shared_lib_sdrpp/libsddc_shared ExtIO_sddc
 
-cd ExtIO_sddc
+cd ExtIO_sddc/libsddc_shared
 mkdir build
 cd build
 make 
