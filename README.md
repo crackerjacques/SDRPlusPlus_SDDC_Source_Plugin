@@ -4,7 +4,7 @@ RX888 MK2 for SDR++ Plugin(WIP)
 
 # WIP.
 Because I don't have an RX 888 in my house.
-Therefore, we do not know if it will work.
+Therefore, I do not know if it will work.
 And I don't have enough pocket money to order at the moment.
 
 # HOWTO
