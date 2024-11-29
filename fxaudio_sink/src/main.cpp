@@ -25,7 +25,7 @@
     #include <juce_audio_devices/juce_audio_devices.h>
     #include <juce_audio_formats/juce_audio_formats.h>
     #include <juce_audio_processors/juce_audio_processors.h>
-
+    
     #include <juce_gui_basics/juce_gui_basics.h>
     #include <juce_gui_extra/juce_gui_extra.h>
 #endif
@@ -43,9 +43,18 @@ SDRPP_MOD_INFO {
 ConfigManager config;
 
 class PluginSlot {
+public:
+    enum class PluginType {
+        VST,
+        VST3,
+        LV2
+    };
+
 private:
     double currentSampleRate = 48000.0;
     int currentBlockSize = 512;
+    PluginType currentType = PluginType::VST;
+    
     #ifdef USE_JUCE
     std::unique_ptr<juce::AudioPluginInstance> processor;
     std::unique_ptr<juce::AudioProcessorEditor> editor;
@@ -53,7 +62,7 @@ private:
     bool bypassed = false;
     std::string currentPluginPath;
 
-    #ifdef USE_JUCE
+#ifdef USE_JUCE
     void showEditor() {
         if (!processor || !processor->hasEditor()) return;
 
@@ -118,12 +127,41 @@ public:
     #endif
     }
 
+    PluginType getCurrentType() const { return currentType; }
+    void setPluginType(PluginType type) { currentType = type; }
+
     std::string openFileDialog() {
-        std::vector<std::string> filters = { "Audio Plugins", "*.so *.vst *.vst3 *.dll *.lv2" };
-        pfd::open_file dialog("Load Audio Plugin", "", filters);
-        auto result = dialog.result();
-        if (!result.empty()) {
-            return result[0];
+        switch (currentType) {
+            case PluginType::VST: {
+                pfd::open_file dialog("Load VST Plugin", "",
+                    { 
+                        "VST Plugin", "*.so *.dll",
+                        "All Files", "*"
+                    });
+                auto result = dialog.result();
+                if (!result.empty()) {
+                    return result[0];
+                }
+                break;
+            }
+            case PluginType::VST3:
+            case PluginType::LV2: {
+                const char* title = (currentType == PluginType::VST3) ? 
+                    "Select VST3 Plugin Directory" : "Select LV2 Plugin Directory";
+                const char* extension = (currentType == PluginType::VST3) ? 
+                    ".vst3" : ".lv2";
+                    
+                pfd::select_folder dialog(title);
+                auto result = dialog.result();
+                if (!result.empty()) {
+                    if (result.length() >= strlen(extension) &&
+                        result.compare(result.length() - strlen(extension), strlen(extension), extension) == 0) {
+                        return result;
+                    }
+                    flog::error("Selected folder must end with {}", extension);
+                }
+                break;
+            }
         }
         return "";
     }
@@ -178,7 +216,7 @@ public:
 #endif
     }
 
-    void process(float* buffer, int numSamples) {
+void process(float* buffer, int numSamples) {
 #ifdef USE_JUCE
         if (!processor || bypassed) return;
 
@@ -251,7 +289,6 @@ public:
         return "No Plugin";
     }
 };
-
 class FXAudioSink : public SinkManager::Sink {
 private:
     SinkManager::Stream* _stream;
@@ -354,7 +391,79 @@ private:
 #endif
 
 public:
-    FXAudioSink(SinkManager::Stream* stream, std::string streamName);
+    FXAudioSink(SinkManager::Stream* stream, std::string streamName) {
+        _stream = stream;
+        _streamName = streamName;
+        s2m.init(_stream->sinkOut);
+        monoPacker.init(&s2m.out, 512);
+        stereoPacker.init(_stream->sinkOut, 512);
+
+#if RTAUDIO_VERSION_MAJOR >= 6
+        audio.setErrorCallback(&errorCallback);
+#endif
+
+        for (int i = 0; i < 4; i++) {
+            pluginSlots[i] = std::make_unique<PluginSlot>();
+        }
+
+        bool created = false;
+        std::string device = "";
+        config.acquire();
+        if (!config.conf.contains(_streamName)) {
+            created = true;
+            config.conf[_streamName]["device"] = "";
+            config.conf[_streamName]["devices"] = json({});
+            config.conf[_streamName]["plugins"] = json({});
+        }
+        device = config.conf[_streamName]["device"];
+
+        if (config.conf[_streamName].contains("plugins")) {
+            for (int i = 0; i < 4; i++) {
+                std::string slotKey = "slot" + std::to_string(i);
+                if (config.conf[_streamName]["plugins"].contains(slotKey)) {
+                    std::string pluginPath = config.conf[_streamName]["plugins"][slotKey];
+                    if (!pluginPath.empty()) {
+                        pluginSlots[i]->loadPlugin(pluginPath);
+                        if (config.conf[_streamName]["plugins"].contains(slotKey + "_bypassed")) {
+                            pluginSlots[i]->setBypassed(config.conf[_streamName]["plugins"][slotKey + "_bypassed"]);
+                        }
+                        if (config.conf[_streamName]["plugins"].contains(slotKey + "_type")) {
+                            int type = config.conf[_streamName]["plugins"][slotKey + "_type"];
+                            pluginSlots[i]->setPluginType(static_cast<PluginSlot::PluginType>(type));
+                        }
+                    }
+                }
+            }
+        }
+
+config.release(created);
+
+        RtAudio::DeviceInfo info;
+#if RTAUDIO_VERSION_MAJOR >= 6
+        for (int i : audio.getDeviceIds()) {
+#else
+        int count = audio.getDeviceCount();
+        for (int i = 0; i < count; i++) {
+#endif
+            try {
+                info = audio.getDeviceInfo(i);
+#if !defined(RTAUDIO_VERSION_MAJOR) || RTAUDIO_VERSION_MAJOR < 6
+                if (!info.probed) { continue; }
+#endif
+                if (info.outputChannels < 2) { continue; }
+                if (info.isDefaultOutput) { defaultDevId = devList.size(); }
+                devList.push_back(info);
+                deviceIds.push_back(i);
+                txtDevList += info.name;
+                txtDevList += '\0';
+            }
+            catch (const std::exception& e) {
+                flog::error("Error getting audio device ({}) info: {}", i, e.what());
+            }
+        }
+        selectByName(device);
+    }
+
     ~FXAudioSink() {
         stop();
     }
@@ -384,198 +493,139 @@ public:
         selectFirst();
     }
 
-    void selectById(int id);
-    void menuHandler();
-};
-
-FXAudioSink::FXAudioSink(SinkManager::Stream* stream, std::string streamName) {
-    _stream = stream;
-    _streamName = streamName;
-    s2m.init(_stream->sinkOut);
-    monoPacker.init(&s2m.out, 512);
-    stereoPacker.init(_stream->sinkOut, 512);
-
-#if RTAUDIO_VERSION_MAJOR >= 6
-    audio.setErrorCallback(&errorCallback);
-#endif
-
-    for (int i = 0; i < 4; i++) {
-        pluginSlots[i] = std::make_unique<PluginSlot>();
-    }
-
-    bool created = false;
-    std::string device = "";
-    config.acquire();
-    if (!config.conf.contains(_streamName)) {
-        created = true;
-        config.conf[_streamName]["device"] = "";
-        config.conf[_streamName]["devices"] = json({});
-        config.conf[_streamName]["plugins"] = json({});
-    }
-    device = config.conf[_streamName]["device"];
-
-    if (config.conf[_streamName].contains("plugins")) {
-        for (int i = 0; i < 4; i++) {
-            std::string slotKey = "slot" + std::to_string(i);
-            if (config.conf[_streamName]["plugins"].contains(slotKey)) {
-                std::string pluginPath = config.conf[_streamName]["plugins"][slotKey];
-                if (!pluginPath.empty()) {
-                    pluginSlots[i]->loadPlugin(pluginPath);
-                    if (config.conf[_streamName]["plugins"].contains(slotKey + "_bypassed")) {
-                        pluginSlots[i]->setBypassed(config.conf[_streamName]["plugins"][slotKey + "_bypassed"]);
-                    }
-                }
-            }
-        }
-    }
-    
-    config.release(created);
-
-    RtAudio::DeviceInfo info;
-#if RTAUDIO_VERSION_MAJOR >= 6
-    for (int i : audio.getDeviceIds()) {
-#else
-    int count = audio.getDeviceCount();
-    for (int i = 0; i < count; i++) {
-#endif
-        try {
-            info = audio.getDeviceInfo(i);
-#if !defined(RTAUDIO_VERSION_MAJOR) || RTAUDIO_VERSION_MAJOR < 6
-            if (!info.probed) { continue; }
-#endif
-            if (info.outputChannels < 2) { continue; }
-            if (info.isDefaultOutput) { defaultDevId = devList.size(); }
-            devList.push_back(info);
-            deviceIds.push_back(i);
-            txtDevList += info.name;
-            txtDevList += '\0';
-        }
-        catch (const std::exception& e) {
-            flog::error("Error getting audio device ({}) info: {}", i, e.what());
-        }
-    }
-    selectByName(device);
-}
-
-void FXAudioSink::selectById(int id) {
-    devId = id;
-    bool created = false;
-    config.acquire();
-    if (!config.conf[_streamName]["devices"].contains(devList[id].name)) {
-        created = true;
-        config.conf[_streamName]["devices"][devList[id].name] = devList[id].preferredSampleRate;
-    }
-    sampleRate = config.conf[_streamName]["devices"][devList[id].name];
-    config.release(created);
-
-    sampleRates = devList[id].sampleRates;
-    sampleRatesTxt = "";
-    char buf[256];
-    bool found = false;
-    unsigned int defaultId = 0;
-    unsigned int defaultSr = devList[id].preferredSampleRate;
-    for (int i = 0; i < sampleRates.size(); i++) {
-        if (sampleRates[i] == sampleRate) {
-            found = true;
-            srId = i;
-        }
-        if (sampleRates[i] == defaultSr) {
-            defaultId = i;
-        }
-        sprintf(buf, "%d", sampleRates[i]);
-        sampleRatesTxt += buf;
-        sampleRatesTxt += '\0';
-    }
-    if (!found) {
-        sampleRate = defaultSr;
-        srId = defaultId;
-    }
-
-    _stream->setSampleRate(sampleRate);
-
-    int bufferSize = sampleRate / 60;
-    for (auto& slot : pluginSlots) {
-        slot->updateProcessingDetails(sampleRate, bufferSize);
-    }
-
-    if (running) { 
-        doStop();
-        doStart();
-    }
-}
-
-void FXAudioSink::menuHandler() {
-    float menuWidth = ImGui::GetContentRegionAvail().x;
-
-    ImGui::SetNextItemWidth(menuWidth);
-    if (ImGui::Combo(("##_fxaudio_sink_dev_" + _streamName).c_str(), &devId, txtDevList.c_str())) {
-        selectById(devId);
+    void selectById(int id) {
+        devId = id;
+        bool created = false;
         config.acquire();
-        config.conf[_streamName]["device"] = devList[devId].name;
-        config.release(true);
-    }
+        if (!config.conf[_streamName]["devices"].contains(devList[id].name)) {
+            created = true;
+            config.conf[_streamName]["devices"][devList[id].name] = devList[id].preferredSampleRate;
+        }
+        sampleRate = config.conf[_streamName]["devices"][devList[id].name];
+        config.release(created);
 
-    ImGui::SetNextItemWidth(menuWidth);
-    if (ImGui::Combo(("##_fxaudio_sink_sr_" + _streamName).c_str(), &srId, sampleRatesTxt.c_str())) {
-        sampleRate = sampleRates[srId];
+        sampleRates = devList[id].sampleRates;
+        sampleRatesTxt = "";
+        char buf[256];
+        bool found = false;
+        unsigned int defaultId = 0;
+        unsigned int defaultSr = devList[id].preferredSampleRate;
+        for (int i = 0; i < sampleRates.size(); i++) {
+            if (sampleRates[i] == sampleRate) {
+                found = true;
+                srId = i;
+            }
+            if (sampleRates[i] == defaultSr) {
+                defaultId = i;
+            }
+            sprintf(buf, "%d", sampleRates[i]);
+            sampleRatesTxt += buf;
+            sampleRatesTxt += '\0';
+        }
+        if (!found) {
+            sampleRate = defaultSr;
+            srId = defaultId;
+        }
+
         _stream->setSampleRate(sampleRate);
-        if (running) {
+
+        int bufferSize = sampleRate / 60;
+        for (auto& slot : pluginSlots) {
+            slot->updateProcessingDetails(sampleRate, bufferSize);
+        }
+
+        if (running) { 
             doStop();
             doStart();
         }
-        config.acquire();
-        config.conf[_streamName]["devices"][devList[devId].name] = sampleRate;
-        config.release(true);
     }
 
-    ImGui::Separator();
-    ImGui::Text("Plugin Chain");
-    
-    for (int i = 0; i < 4; i++) {
-        std::string id = std::to_string(i + 1);
-        ImGui::Text("Slot %d: %s", i + 1, pluginSlots[i]->getPluginName());
+    void menuHandler() {
+        float menuWidth = ImGui::GetContentRegionAvail().x;
 
-        if (!pluginSlots[i]->isLoaded()) {
-            if (ImGui::Button(CONCAT("Load Plugin##slot_", id))) {
-                std::string path = pluginSlots[i]->openFileDialog();
-                if (!path.empty()) {
-                    if (pluginSlots[i]->loadPlugin(path)) {
-                        config.acquire();
-                        config.conf[_streamName]["plugins"]["slot" + std::to_string(i)] = path;
-                        config.release(true);
-                    }
-                }
-            }
+        ImGui::SetNextItemWidth(menuWidth);
+        if (ImGui::Combo(("##_fxaudio_sink_dev_" + _streamName).c_str(), &devId, txtDevList.c_str())) {
+            selectById(devId);
+            config.acquire();
+            config.conf[_streamName]["device"] = devList[devId].name;
+            config.release(true);
         }
-        else {
-            if (ImGui::Button(CONCAT("Unload##slot_", id))) {
-                pluginSlots[i]->unloadPlugin();
-                config.acquire();
-                config.conf[_streamName]["plugins"]["slot" + std::to_string(i)] = "";
-                config.release(true);
+
+        ImGui::SetNextItemWidth(menuWidth);
+        if (ImGui::Combo(("##_fxaudio_sink_sr_" + _streamName).c_str(), &srId, sampleRatesTxt.c_str())) {
+            sampleRate = sampleRates[srId];
+            _stream->setSampleRate(sampleRate);
+            if (running) {
+                doStop();
+                doStart();
             }
-
-            ImGui::SameLine();
-
-            if (ImGui::Button(CONCAT(pluginSlots[i]->isEditorVisible ? 
-                                   "Hide##edit_" : "View##edit_", id))) {
-                pluginSlots[i]->toggleEditor();
-            }
-
-            ImGui::SameLine();
-
-            bool bypassed = pluginSlots[i]->isBypassed();
-            if (ImGui::Checkbox(CONCAT("Bypass##bypass_", id), &bypassed)) {
-                pluginSlots[i]->setBypassed(bypassed);
-                config.acquire();
-                config.conf[_streamName]["plugins"]["slot" + std::to_string(i) + "_bypassed"] = bypassed;
-                config.release(true);
-            }
+            config.acquire();
+            config.conf[_streamName]["devices"][devList[devId].name] = sampleRate;
+            config.release(true);
         }
 
         ImGui::Separator();
+        ImGui::Text("Plugin Chain");
+        
+        for (int i = 0; i < 4; i++) {
+            std::string id = std::to_string(i + 1);
+            ImGui::Text("Slot %d: %s", i + 1, pluginSlots[i]->getPluginName());
+
+            if (!pluginSlots[i]->isLoaded()) {
+                const char* types[] = { "VST", "VST3", "LV2" };
+                int currentType = static_cast<int>(pluginSlots[i]->getCurrentType());
+                
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.3f);
+                if (ImGui::Combo(CONCAT("##type_", id), &currentType, types, IM_ARRAYSIZE(types))) {
+                    pluginSlots[i]->setPluginType(static_cast<PluginSlot::PluginType>(currentType));
+                    config.acquire();
+                    config.conf[_streamName]["plugins"]["slot" + std::to_string(i) + "_type"] = currentType;
+                    config.release(true);
+                }
+                
+                ImGui::SameLine();
+                
+                if (ImGui::Button(CONCAT("Load Plugin##slot_", id))) {
+                    std::string path = pluginSlots[i]->openFileDialog();
+                    if (!path.empty()) {
+                        if (pluginSlots[i]->loadPlugin(path)) {
+                            config.acquire();
+                            config.conf[_streamName]["plugins"]["slot" + std::to_string(i)] = path;
+                            config.release(true);
+                        }
+                    }
+                }
+            }
+            else {
+                if (ImGui::Button(CONCAT("Unload##slot_", id))) {
+                    pluginSlots[i]->unloadPlugin();
+                    config.acquire();
+                    config.conf[_streamName]["plugins"]["slot" + std::to_string(i)] = "";
+                    config.release(true);
+                }
+
+                ImGui::SameLine();
+
+                if (ImGui::Button(CONCAT(pluginSlots[i]->isEditorVisible ? 
+                                   "Hide##edit_" : "View##edit_", id))) {
+                    pluginSlots[i]->toggleEditor();
+                }
+
+                ImGui::SameLine();
+
+                bool bypassed = pluginSlots[i]->isBypassed();
+                if (ImGui::Checkbox(CONCAT("Bypass##bypass_", id), &bypassed)) {
+                    pluginSlots[i]->setBypassed(bypassed);
+                    config.acquire();
+                    config.conf[_streamName]["plugins"]["slot" + std::to_string(i) + "_bypassed"] = bypassed;
+                    config.release(true);
+                }
+            }
+
+            ImGui::Separator();
+        }
     }
-}
+};
 
 class FXAudioSinkModule : public ModuleManager::Instance {
 public:
