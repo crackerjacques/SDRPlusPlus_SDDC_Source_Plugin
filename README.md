@@ -1,7 +1,7 @@
 # SDRP++_SDDC_Source_Plugin
 RX888 MK2 for SDR++ Plugin(WIP)
 
-and my My C++ study a.k.a garbage plugins for SDR++
+and my C++ study a.k.a garbage plugins for SDR++
 
 
 # WIP.
