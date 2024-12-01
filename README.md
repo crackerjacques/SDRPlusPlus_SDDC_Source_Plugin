@@ -9,6 +9,16 @@ Because I don't have an RX 888 in my house.
 Therefore, I do not know if it will work.
 And I don't have enough pocket money to order at the moment.
 
+# Current Plug-ins
+
+**SDDC Plugin** - Includes ExtIO and works as a stand-alone.
+
+**Use SDDC Plugin2** - Refer to libsddc.so.
+
+**FX AUDIO Sink Plugin** -Up to 4 VST plug-in chain can be inserted into RTAudio's audio sink.
+
+**NRAudio Sink Plugin** - Improves signal-to-noise ratio using AI noise reduction RNNnoise. The current default model is ok for speech, but not suitable for listening to music.
+
 # HOWTO
 
 Preparing
