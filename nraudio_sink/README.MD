@@ -1,4 +1,4 @@
-# RTAudio Sink with AI-BASED Noise Reduction 
+# RTAudio Sink with AI-BASED Noise Reduction for SDR++
 
 Maybe useful dig weak signal and Communication with a guy who lives in a noisy environment.
 
