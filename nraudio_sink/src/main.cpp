@@ -307,11 +307,11 @@ void menuHandler() {
             };
 
             addParameterControls("gain_alpha", gainAlpha, defaults.gainAlpha, 
-                               gainAlphaStep, 0.5f, 0.999f,
+                               gainAlphaStep, 0.001f, 0.999f,
                                "Smoothing factor for gain changes\nHigher = smoother but slower response");
             
             addParameterControls("noise_gate", noiseGate, defaults.noiseGate,
-                               noiseGateStep, 0.0f, 0.001f,
+                               noiseGateStep, 0.0f, 1.0f,
                                "Threshold for noise gate\nHigher = more aggressive noise reduction",
                                "%.6f");
 
@@ -320,7 +320,7 @@ void menuHandler() {
                                "Minimum gain during silence");
 
             addParameterControls("max_gain", maxGain, defaults.maxGain,
-                               gainStep, minGain, 2.0f,
+                               gainStep, minGain, 1.1f,
                                "Maximum gain during speech");
 
             ImGui::Dummy(ImVec2(0.0f, 10.0f));
