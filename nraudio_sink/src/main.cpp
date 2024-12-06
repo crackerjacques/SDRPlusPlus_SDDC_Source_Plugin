@@ -11,6 +11,9 @@
 #include <config.h>
 #include <core.h>
 #include <dirent.h>
+#include <deque>
+#include <memory>
+#include <algorithm>
 
 #define CONCAT(a, b) ((std::string(a) + b).c_str())
 
@@ -18,7 +21,7 @@ SDRPP_MOD_INFO{
     /* Name:            */ "nraudio_sink",
     /* Description:     */ "Audio sink module with noise reduction for SDR++",
     /* Author:          */ "Jack Heinlein",
-    /* Version:         */ 0, 1, 0,
+    /* Version:         */ 0, 1, 2,
     /* Max instances    */ 1
 };
 
@@ -47,7 +50,7 @@ public:
         audio.setErrorCallback(&errorCallback);
 #endif
 
-        // load model
+        // Load models
         loadAvailableModels();
 
         // Load config
@@ -63,12 +66,18 @@ public:
             config.conf[_streamName]["min_gain"] = minGain;
             config.conf[_streamName]["max_gain"] = maxGain;
             config.conf[_streamName]["model_index"] = currentModelIndex;
+            config.conf[_streamName]["vad_threshold"] = vadThreshold;
+            config.conf[_streamName]["vad_grace_period_blocks"] = vadGracePeriodBlocks;
+            config.conf[_streamName]["retroactive_vad_grace_blocks"] = retroactiveVADGraceBlocks;
 
             config.conf[_streamName]["defaults"]["gain_alpha"] = defaults.gainAlpha;
             config.conf[_streamName]["defaults"]["noise_gate"] = defaults.noiseGate;
             config.conf[_streamName]["defaults"]["scale"] = defaults.scale;
             config.conf[_streamName]["defaults"]["min_gain"] = defaults.minGain;
             config.conf[_streamName]["defaults"]["max_gain"] = defaults.maxGain;
+            config.conf[_streamName]["defaults"]["vad_threshold"] = defaults.vadThreshold;
+            config.conf[_streamName]["defaults"]["vad_grace_period_blocks"] = defaults.vadGracePeriodBlocks;
+            config.conf[_streamName]["defaults"]["retroactive_vad_grace_blocks"] = defaults.retroactiveVADGraceBlocks;
         }
 
         device = config.conf[_streamName]["device"];
@@ -80,6 +89,9 @@ public:
         minGain = config.conf[_streamName]["min_gain"];
         maxGain = config.conf[_streamName]["max_gain"];
         currentModelIndex = config.conf[_streamName]["model_index"];
+        vadThreshold = config.conf[_streamName]["vad_threshold"];
+        vadGracePeriodBlocks = config.conf[_streamName]["vad_grace_period_blocks"];
+        retroactiveVADGraceBlocks = config.conf[_streamName]["retroactive_vad_grace_blocks"];
 
         if (config.conf[_streamName].contains("defaults")) {
             defaults.gainAlpha = config.conf[_streamName]["defaults"]["gain_alpha"];
@@ -87,22 +99,25 @@ public:
             defaults.scale = config.conf[_streamName]["defaults"]["scale"];
             defaults.minGain = config.conf[_streamName]["defaults"]["min_gain"];
             defaults.maxGain = config.conf[_streamName]["defaults"]["max_gain"];
+            defaults.vadThreshold = config.conf[_streamName]["defaults"]["vad_threshold"];
+            defaults.vadGracePeriodBlocks = config.conf[_streamName]["defaults"]["vad_grace_period_blocks"];
+            defaults.retroactiveVADGraceBlocks = config.conf[_streamName]["defaults"]["retroactive_vad_grace_blocks"];
         }
         config.release();
 
-    // Initialize audio devices
-            RtAudio::DeviceInfo info;
-    #if RTAUDIO_VERSION_MAJOR >= 6
-            for (int i : audio.getDeviceIds()) {
-    #else
-            int count = audio.getDeviceCount();
-            for (int i = 0; i < count; i++) {
-    #endif
-                try {
-                    info = audio.getDeviceInfo(i);
-    #if !defined(RTAUDIO_VERSION_MAJOR) || RTAUDIO_VERSION_MAJOR < 6
-                    if (!info.probed) { continue; }
-    #endif
+        // Initialize audio devices
+        RtAudio::DeviceInfo info;
+#if RTAUDIO_VERSION_MAJOR >= 6
+        for (int i : audio.getDeviceIds()) {
+#else
+        int count = audio.getDeviceCount();
+        for (int i = 0; i < count; i++) {
+#endif
+            try {
+                info = audio.getDeviceInfo(i);
+#if !defined(RTAUDIO_VERSION_MAJOR) || RTAUDIO_VERSION_MAJOR < 6
+                if (!info.probed) { continue; }
+#endif
                 if (info.outputChannels == 0) { continue; }
                 if (info.isDefaultOutput) { defaultDevId = devList.size(); }
                 devList.push_back(info);
@@ -138,7 +153,6 @@ public:
     }
 
     void loadAvailableModels() {
-        
         availableModels.push_back({"Default Model", ""});
 
         // Search model dir
@@ -167,7 +181,6 @@ public:
     }
 
     bool loadModel(int index) {
-        // return to defalut
         if (index == 0) {
             if (loadedModel) {
                 rnnoise_model_free(loadedModel);
@@ -204,7 +217,7 @@ public:
         return true;
     }
 
-void menuHandler() {
+    void menuHandler() {
         float menuWidth = ImGui::GetContentRegionAvail().x;
 
         // Audio device controls
@@ -265,17 +278,9 @@ void menuHandler() {
                                           float step, float min, float max, const char* tooltip,
                                           const char* format = "%.3f") {
                 ImGui::PushID(label);
-
                 std::string labelText = std::string(label);
-
-                // float diff = value - defaultValue;
-                // std::string labelText = std::string(label) + " (" + 
-                //                       (diff >= 0 ? "+" : "") + 
-                //                       std::to_string(diff) + ")";
-                
                 ImGui::SetNextItemWidth(menuWidth * 0.5f);
                 bool changed = ImGui::SliderFloat(labelText.c_str(), &value, min, max, format);
-
                 ImGui::SameLine();
                 if (ImGui::Button("-")) {
                     value = std::max(value - step, min);
@@ -286,23 +291,16 @@ void menuHandler() {
                     value = std::min(value + step, max);
                     changed = true;
                 }
-                
                 if (changed) {
                     config.acquire();
                     config.conf[_streamName][label] = value;
                     config.release(true);
                 }
-
-                // if (ImGui::IsItemHovered()) {
-                //     ImGui::SetTooltip("%s\nDefault: %.6f\nCurrent: %.6f\nDiff: %+.6f", 
-                //                     tooltip, defaultValue, value, diff);
-                // }
-               if (ImGui::IsItemHovered()) {
+                if (ImGui::IsItemHovered()) {
                     float diff = value - defaultValue;
                     ImGui::SetTooltip("%s\nDefault: %.6f\nCurrent: %.6f\nDiff: %+.6f", 
-                                    tooltip, defaultValue, value);
+                                    tooltip, defaultValue, value, diff);
                 }
-
                 ImGui::PopID();
             };
 
@@ -324,15 +322,61 @@ void menuHandler() {
                                "Maximum gain during speech");
 
             ImGui::Dummy(ImVec2(0.0f, 10.0f));
+            ImGui::Text("Voice Activity Detection (VAD) Settings");
+
+            // VAD Threshold
+            ImGui::SetNextItemWidth(menuWidth * 0.5f);
+            if (ImGui::SliderFloat("VAD Threshold", &vadThreshold, 0.0f, 1.0f, "%.3f")) {
+                config.acquire();
+                config.conf[_streamName]["vad_threshold"] = vadThreshold;
+                config.release(true);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Voice activity detection threshold\n"
+                                "Higher values = more aggressive voice detection\n"
+                                "Default: %.3f", defaults.vadThreshold);
+            }
+
+            // VAD Grace Period
+            ImGui::SetNextItemWidth(menuWidth * 0.5f); 
+            if (ImGui::SliderInt("VAD Grace Period", (int*)&vadGracePeriodBlocks, 20, 100)) {
+                config.acquire();
+                config.conf[_streamName]["vad_grace_period_blocks"] = vadGracePeriodBlocks;
+                config.release(true);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Number of blocks to keep unmuted after voice detection\n"
+                                "Higher values = longer tail after speech\n"
+                                "Default: %d", defaults.vadGracePeriodBlocks);
+            }
+
+            // Retroactive VAD Grace
+            ImGui::SetNextItemWidth(menuWidth * 0.5f);
+            if (ImGui::SliderInt("Retroactive VAD Grace", (int*)&retroactiveVADGraceBlocks, 0, 99)) {
+                config.acquire();
+                config.conf[_streamName]["retroactive_vad_grace_blocks"] = retroactiveVADGraceBlocks;
+                config.release(true);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Number of past blocks to unmute when voice is detected\n"
+                                "Higher values = less cutting of speech beginnings but more latency\n"
+                                "Default: %d", defaults.retroactiveVADGraceBlocks);
+            }
+
+            ImGui::Dummy(ImVec2(0.0f, 10.0f));
 
             if (ImGui::Button(("Save Current as Defaults##_save_" + _streamName).c_str())) {
-                defaults = {gainAlpha, noiseGate, scale, minGain, maxGain};
+                defaults = {gainAlpha, noiseGate, scale, minGain, maxGain, 
+                          vadThreshold, vadGracePeriodBlocks, retroactiveVADGraceBlocks};
                 config.acquire();
                 config.conf[_streamName]["defaults"]["gain_alpha"] = defaults.gainAlpha;
                 config.conf[_streamName]["defaults"]["noise_gate"] = defaults.noiseGate;
                 config.conf[_streamName]["defaults"]["scale"] = defaults.scale;
                 config.conf[_streamName]["defaults"]["min_gain"] = defaults.minGain;
                 config.conf[_streamName]["defaults"]["max_gain"] = defaults.maxGain;
+                config.conf[_streamName]["defaults"]["vad_threshold"] = defaults.vadThreshold;
+                config.conf[_streamName]["defaults"]["vad_grace_period_blocks"] = defaults.vadGracePeriodBlocks;
+                config.conf[_streamName]["defaults"]["retroactive_vad_grace_blocks"] = defaults.retroactiveVADGraceBlocks;
                 config.release(true);
             }
 
@@ -343,12 +387,18 @@ void menuHandler() {
                 scale = defaults.scale;
                 minGain = defaults.minGain;
                 maxGain = defaults.maxGain;
+                vadThreshold = defaults.vadThreshold;
+                vadGracePeriodBlocks = defaults.vadGracePeriodBlocks;
+                retroactiveVADGraceBlocks = defaults.retroactiveVADGraceBlocks;
                 config.acquire();
                 config.conf[_streamName]["gain_alpha"] = gainAlpha;
                 config.conf[_streamName]["noise_gate"] = noiseGate;
                 config.conf[_streamName]["scale"] = scale;
                 config.conf[_streamName]["min_gain"] = minGain;
                 config.conf[_streamName]["max_gain"] = maxGain;
+                config.conf[_streamName]["vad_threshold"] = vadThreshold;
+                config.conf[_streamName]["vad_grace_period_blocks"] = vadGracePeriodBlocks;
+                config.conf[_streamName]["retroactive_vad_grace_blocks"] = retroactiveVADGraceBlocks;
                 config.release(true);
             }
         }
@@ -381,9 +431,19 @@ private:
             }
         }
 
+        // Initialize circular buffers for retroactive unmuting
+        retroactiveBufferL.clear();
+        retroactiveBufferR.clear();
+        retroactiveVADProbBuffer.clear();
+
         flog::info("Successfully created RNNoise states with {} (mono mode: {})", 
             availableModels[currentModelIndex].name, isMonoMode);
     }
+
+    struct AudioBlock {
+        std::vector<float> data;
+        bool wasVoiceActive;
+    };
 
     void processAudio(float* buffer, int frameCount) {
         if (!rnNoiseEnabled || !rnNoiseStateL) return;
@@ -403,9 +463,9 @@ private:
 
         for (int offset = 0; offset < frameCount; offset += rnnFrameSize) {
             int remainingFrames = std::min(rnnFrameSize, frameCount - offset);
-                
+
             if (isMonoMode) {
-                    // Monoaural
+                // Process mono audio
                 for (int i = 0; i < remainingFrames; i++) {
                     float left = buffer[(offset + i) * 2];
                     float right = buffer[(offset + i) * 2 + 1];
@@ -413,25 +473,81 @@ private:
                 }
 
                 if (shouldDebug) {
-                    // RMS
                     float rms = 0.0f;
                     for (int i = 0; i < remainingFrames; i++) {
                         float val = processingBufferL[i] * invScale;
                         rms += val * val;
                     }
                     rms = std::sqrt(rms / remainingFrames);
-
                     flog::info("Pre-process: RMS={:.6f}, first={:.6f}", 
                         rms, processingBufferL[0] * invScale);
                 }
 
-                float vadProb = rnnoise_process_frame(rnNoiseStateL, processingBufferL.data(), processingBufferL.data());
+                float vadProb = rnnoise_process_frame(rnNoiseStateL, 
+                                                    processingBufferL.data(), 
+                                                    processingBufferL.data());
 
-                // Smoothing Gain
+                // Store VAD probability for retroactive processing
+                retroactiveVADProbBuffer.push_back(vadProb);
+                if (retroactiveVADProbBuffer.size() > retroactiveVADGraceBlocks + 1) {
+                    retroactiveVADProbBuffer.pop_front();
+                }
+
+                // Store audio block for potential retroactive unmuting
+                AudioBlock block;
+                block.data.assign(processingBufferL.begin(), 
+                                processingBufferL.begin() + remainingFrames);
+                block.wasVoiceActive = (vadProb >= vadThreshold);
+                retroactiveBufferL.push_back(block);
+
+                if (retroactiveBufferL.size() > retroactiveVADGraceBlocks + 1) {
+                    retroactiveBufferL.pop_front();
+                }
+
+                // Process current block
                 static float smoothedGain = minGain;
+                static uint32_t blocksAfterVAD = 0;
+
+                bool isVoiceActive = vadProb >= vadThreshold;
+                if (isVoiceActive) {
+                    blocksAfterVAD = 0;
+                    
+                    // Retroactively unmute previous blocks
+                    if (retroactiveVADGraceBlocks > 0) {
+                        size_t retroBlocks = std::min(static_cast<size_t>(retroactiveVADGraceBlocks),
+                                                    retroactiveBufferL.size() > 0 ? retroactiveBufferL.size() - 1 : 0);
+                        for (size_t i = 0; i < retroBlocks; i++) {
+                            if (!retroactiveBufferL[i].wasVoiceActive) {
+                                // Process and update the block
+                                AudioBlock& retroBlock = retroactiveBufferL[i];
+                                for (float& sample : retroBlock.data) {
+                                    float current = sample * invScale;
+                                    float targetGain = (std::abs(current) > noiseGate ? maxGain : minGain);
+                                    smoothedGain = std::max(minGain, std::min(maxGain, 
+                                                gainAlpha * smoothedGain + 
+                                                (1.0f - gainAlpha) * targetGain));
+                                    sample = current * smoothedGain;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    blocksAfterVAD++;
+                }
+
+                bool shouldBeUnmuted = isVoiceActive || 
+                                     blocksAfterVAD < vadGracePeriodBlocks;
+
                 for (int i = 0; i < remainingFrames; i++) {
                     float current = processingBufferL[i] * invScale;
-                    float targetGain = (std::abs(current) > noiseGate ? maxGain : minGain);
+                    float targetGain;
+                    
+                    if (shouldBeUnmuted) {
+                        targetGain = (std::abs(current) > noiseGate ? maxGain : minGain);
+                    } else {
+                        targetGain = minGain;
+                    }
+                    
                     smoothedGain = std::max(minGain, std::min(maxGain, 
                                 gainAlpha * smoothedGain + (1.0f - gainAlpha) * targetGain));
                     processingBufferL[i] = current * smoothedGain;
@@ -444,7 +560,6 @@ private:
                         rms += val * val;
                     }
                     rms = std::sqrt(rms / remainingFrames);
-
                     flog::info("Post-process: RMS={:.6f}, first={:.6f}, VAD={:.3f}, Gain={:.3f}", 
                         rms, processingBufferL[0], vadProb, smoothedGain);
                 }
@@ -453,9 +568,8 @@ private:
                     buffer[(offset + i) * 2] = processingBufferL[i];
                     buffer[(offset + i) * 2 + 1] = processingBufferL[i];
                 }
-            }
-            else {
-                // Stereo
+            } else {
+                // Process stereo audio
                 for (int i = 0; i < remainingFrames; i++) {
                     processingBufferL[i] = buffer[(offset + i) * 2] * scale;
                     processingBufferR[i] = buffer[(offset + i) * 2 + 1] * scale;
@@ -471,28 +585,101 @@ private:
                     }
                     rmsL = std::sqrt(rmsL / remainingFrames);
                     rmsR = std::sqrt(rmsR / remainingFrames);
-
                     flog::info("Pre-process L/R: RMS={:.6f}/{:.6f}, first={:.6f}/{:.6f}", 
                         rmsL, rmsR, processingBufferL[0] * invScale, processingBufferR[0] * invScale);
                 }
 
-                float vadProbL = rnnoise_process_frame(rnNoiseStateL, processingBufferL.data(), processingBufferL.data());
-                float vadProbR = rnnoise_process_frame(rnNoiseStateR, processingBufferR.data(), processingBufferR.data());
+                float vadProbL = rnnoise_process_frame(rnNoiseStateL, 
+                                                     processingBufferL.data(), 
+                                                     processingBufferL.data());
+                float vadProbR = rnnoise_process_frame(rnNoiseStateR, 
+                                                     processingBufferR.data(), 
+                                                     processingBufferR.data());
+                
+                float combinedVADProb = std::max(vadProbL, vadProbR);
+                retroactiveVADProbBuffer.push_back(combinedVADProb);
+                if (retroactiveVADProbBuffer.size() > retroactiveVADGraceBlocks + 1) {
+                    retroactiveVADProbBuffer.pop_front();
+                }
+
+                // Store audio blocks for potential retroactive unmuting
+                AudioBlock blockL, blockR;
+                blockL.data.assign(processingBufferL.begin(), 
+                                 processingBufferL.begin() + remainingFrames);
+                blockR.data.assign(processingBufferR.begin(), 
+                                 processingBufferR.begin() + remainingFrames);
+                blockL.wasVoiceActive = blockR.wasVoiceActive = 
+                    (combinedVADProb >= vadThreshold);
+                
+                retroactiveBufferL.push_back(blockL);
+                retroactiveBufferR.push_back(blockR);
+
+                if (retroactiveBufferL.size() > retroactiveVADGraceBlocks + 1) {
+                    retroactiveBufferL.pop_front();
+                    retroactiveBufferR.pop_front();
+                }
 
                 static float smoothedGainL = minGain;
                 static float smoothedGainR = minGain;
+                static uint32_t blocksAfterVAD = 0;
+
+                bool isVoiceActive = combinedVADProb >= vadThreshold;
+                if (isVoiceActive) {
+                    blocksAfterVAD = 0;
+                    
+                    if (retroactiveVADGraceBlocks > 0) {
+                        size_t retroBlocks = std::min(static_cast<size_t>(retroactiveVADGraceBlocks),
+                                                    retroactiveBufferL.size() > 0 ? retroactiveBufferL.size() - 1 : 0);
+                        for (size_t i = 0; i < retroBlocks; i++) {
+                            if (!retroactiveBufferL[i].wasVoiceActive) {
+                                AudioBlock& retroBlockL = retroactiveBufferL[i];
+                                AudioBlock& retroBlockR = retroactiveBufferR[i];
+                                
+                                for (size_t j = 0; j < retroBlockL.data.size(); j++) {
+                                    float currentL = retroBlockL.data[j] * invScale;
+                                    float currentR = retroBlockR.data[j] * invScale;
+                                    
+                                    float targetGainL = (std::abs(currentL) > noiseGate ? maxGain : minGain);
+                                    float targetGainR = (std::abs(currentR) > noiseGate ? maxGain : minGain);
+                                    
+                                    smoothedGainL = std::max(minGain, std::min(maxGain, 
+                                                gainAlpha * smoothedGainL + 
+                                                (1.0f - gainAlpha) * targetGainL));
+                                    smoothedGainR = std::max(minGain, std::min(maxGain, 
+                                                gainAlpha * smoothedGainR + 
+                                                (1.0f - gainAlpha) * targetGainR));
+                                    
+                                    retroBlockL.data[j] = currentL * smoothedGainL;
+                                    retroBlockR.data[j] = currentR * smoothedGainR;
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    blocksAfterVAD++;
+                }
+
+                bool shouldBeUnmuted = isVoiceActive || 
+                                     blocksAfterVAD < vadGracePeriodBlocks;
 
                 for (int i = 0; i < remainingFrames; i++) {
                     float currentL = processingBufferL[i] * invScale;
                     float currentR = processingBufferR[i] * invScale;
                     
-                    float targetGainL = (std::abs(currentL) > noiseGate ? maxGain : minGain);
-                    float targetGainR = (std::abs(currentR) > noiseGate ? maxGain : minGain);
+                    float targetGainL, targetGainR;
+                    if (shouldBeUnmuted) {
+                        targetGainL = (std::abs(currentL) > noiseGate ? maxGain : minGain);
+                        targetGainR = (std::abs(currentR) > noiseGate ? maxGain : minGain);
+                    } else {
+                        targetGainL = targetGainR = minGain;
+                    }
                     
                     smoothedGainL = std::max(minGain, std::min(maxGain, 
-                                gainAlpha * smoothedGainL + (1.0f - gainAlpha) * targetGainL));
+                                gainAlpha * smoothedGainL + 
+                                (1.0f - gainAlpha) * targetGainL));
                     smoothedGainR = std::max(minGain, std::min(maxGain, 
-                                gainAlpha * smoothedGainR + (1.0f - gainAlpha) * targetGainR));
+                                gainAlpha * smoothedGainR + 
+                                (1.0f - gainAlpha) * targetGainR));
                     
                     processingBufferL[i] = currentL * smoothedGainL;
                     processingBufferR[i] = currentR * smoothedGainR;
@@ -548,7 +735,7 @@ private:
         return true;
     }
 
-void doStop() {
+    void doStop() {
         s2m.stop();
         monoPacker.stop();
         stereoPacker.stop();
@@ -559,37 +746,6 @@ void doStop() {
         monoPacker.out.clearReadStop();
         stereoPacker.out.clearReadStop();
     }
-
-    static int callback(void* outputBuffer, void* inputBuffer, unsigned int nBufferFrames, 
-                       double streamTime, RtAudioStreamStatus status, void* userData) {
-        NRAudioSink* _this = (NRAudioSink*)userData;
-        int count = _this->stereoPacker.out.read();
-        if (count < 0) { return 0; }
-
-        if (_this->rnNoiseEnabled) {
-            _this->processAudio((float*)_this->stereoPacker.out.readBuf, nBufferFrames);
-        }
-
-        memcpy(outputBuffer, _this->stereoPacker.out.readBuf, nBufferFrames * sizeof(dsp::stereo_t));
-        _this->stereoPacker.out.flush();
-        return 0;
-    }
-
-#if RTAUDIO_VERSION_MAJOR >= 6
-    static void errorCallback(RtAudioErrorType type, const std::string& errorText) {
-        switch (type) {
-        case RtAudioErrorType::RTAUDIO_NO_ERROR:
-            return;
-        case RtAudioErrorType::RTAUDIO_WARNING:
-        case RtAudioErrorType::RTAUDIO_NO_DEVICES_FOUND:
-        case RtAudioErrorType::RTAUDIO_DEVICE_DISCONNECT:
-            flog::warn("NRAudioSink Warning: {} ({})", errorText, (int)type);
-            break;
-        default:
-            throw std::runtime_error(errorText);
-        }
-    }
-#endif
 
     void selectFirst() {
         selectById(defaultDevId);
@@ -647,12 +803,43 @@ void doStop() {
         }
     }
 
-SinkManager::Stream* _stream;
+    static int callback(void* outputBuffer, void* inputBuffer, unsigned int nBufferFrames, 
+                       double streamTime, RtAudioStreamStatus status, void* userData) {
+        NRAudioSink* _this = (NRAudioSink*)userData;
+        int count = _this->stereoPacker.out.read();
+        if (count < 0) { return 0; }
+
+        if (_this->rnNoiseEnabled) {
+            _this->processAudio((float*)_this->stereoPacker.out.readBuf, nBufferFrames);
+        }
+
+        memcpy(outputBuffer, _this->stereoPacker.out.readBuf, nBufferFrames * sizeof(dsp::stereo_t));
+        _this->stereoPacker.out.flush();
+        return 0;
+    }
+
+#if RTAUDIO_VERSION_MAJOR >= 6
+    static void errorCallback(RtAudioErrorType type, const std::string& errorText) {
+        switch (type) {
+        case RtAudioErrorType::RTAUDIO_NO_ERROR:
+            return;
+        case RtAudioErrorType::RTAUDIO_WARNING:
+        case RtAudioErrorType::RTAUDIO_NO_DEVICES_FOUND:
+        case RtAudioErrorType::RTAUDIO_DEVICE_DISCONNECT:
+            flog::warn("NRAudioSink Warning: {} ({})", errorText, (int)type);
+            break;
+        default:
+            throw std::runtime_error(errorText);
+        }
+    }
+#endif
+
+    SinkManager::Stream* _stream;
     std::string _streamName;
     dsp::convert::StereoToMono s2m;
     dsp::buffer::Packer<float> monoPacker;
     dsp::buffer::Packer<dsp::stereo_t> stereoPacker;
-    
+
     // RNNoise related
     DenoiseState* rnNoiseStateL = nullptr;
     DenoiseState* rnNoiseStateR = nullptr;
@@ -665,8 +852,15 @@ SinkManager::Stream* _stream;
     std::vector<ModelInfo> availableModels;
     int currentModelIndex = 0;
 
-    // parameters
+    // VAD related
+    std::deque<AudioBlock> retroactiveBufferL;
+    std::deque<AudioBlock> retroactiveBufferR;
+    std::deque<float> retroactiveVADProbBuffer;
+    float vadThreshold = 0.5f;
+    uint32_t vadGracePeriodBlocks = 20;
+    uint32_t retroactiveVADGraceBlocks = 0;
 
+    // Parameters
     float gainAlpha = 0.98f;
     float noiseGate = 0.001f;
     float scale = 32768.0f;
@@ -679,12 +873,18 @@ SinkManager::Stream* _stream;
         float scale = 32768.0f;
         float minGain = 0.1f;
         float maxGain = 1.0f;
+        float vadThreshold = 0.5f;
+        uint32_t vadGracePeriodBlocks = 20;
+        uint32_t retroactiveVADGraceBlocks = 0;
     } defaults;
 
-    float gainAlphaStep = 0.01f;
+    float gainAlphaStep = 0.001f;
     float noiseGateStep = 0.00001f;
     float scaleStep = 1000.0f;
-    float gainStep = 0.05f;
+    float gainStep = 0.001f;
+    float vadThresholdStep = 0.01f;
+    uint32_t vadGracePeriodStep = 1;
+    uint32_t retroactiveVADStep = 1;
 
     // Audio device related
     RtAudio audio;
@@ -750,12 +950,18 @@ MOD_EXPORT void _INIT_() {
         {"min_gain", 0.1f},
         {"max_gain", 1.0f},
         {"model_index", 0},
+        {"vad_threshold", 0.5f},
+        {"vad_grace_period_blocks", 20},
+        {"retroactive_vad_grace_blocks", 0},
         {"defaults", {
             {"gain_alpha", 0.98f},
             {"noise_gate", 0.001f},
             {"scale", 32768.0f},
             {"min_gain", 0.1f},
-            {"max_gain", 1.0f}
+            {"max_gain", 1.0f},
+            {"vad_threshold", 0.5f},
+            {"vad_grace_period_blocks", 20},
+            {"retroactive_vad_grace_blocks", 0}
         }}
     });
     
