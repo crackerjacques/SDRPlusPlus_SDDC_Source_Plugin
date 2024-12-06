@@ -640,7 +640,7 @@ void SDAudioSink::menuHandler() {
         if (notchEnabled) {
             bool notchChanged = false;
             ImGui::SetNextItemWidth(halfWidth);
-            if (ImGui::SliderFloat("Notch Freq (Hz)", &notchFreq, 45.0f, 1000.0f, "%.1f")) {
+            if (ImGui::SliderFloat("Notch Freq (Hz)", &notchFreq, 45.0f, 20000.0f, "%.1f")) {
                 notchChanged = true;
                 config.acquire();
                 config.conf[_streamName]["notch_freq"] = notchFreq;
