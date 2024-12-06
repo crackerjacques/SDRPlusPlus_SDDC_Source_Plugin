@@ -4,6 +4,11 @@ RX888 MK2 for SDR++ Plugin(WIP)
 and my study a.k.a garbage plugins for SDR++
 Whenever I feel like it, I maintain it or add new item and features.
 
+
+## Operation is currently only confirmed in these environments
+
+**Ubuntu 24.04 on x64/ Arch Linux on Raspberry Pi 5**
+
 # WIP.
 Because I don't have an RX 888 in my house.
 Therefore, I do not know if it will work.
