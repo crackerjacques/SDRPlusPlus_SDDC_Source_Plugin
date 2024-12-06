@@ -20,7 +20,8 @@ And I don't have enough pocket money to order at the moment.
 
 **Use SDDC Plugin2** - Refer to libsddc.so.
 
-**FX AUDIO Sink Plugin** -Up to 4 VST plug-in chain can be inserted into RTAudio's audio sink.
+**FX AUDIO Sink Plugin** -Up to 4 VST plug-in chain can be inserted into RTAudio's audio sink.　
+Currently, only VST2 is supported.
 
 **NRAudio Sink Plugin** - Improves signal-to-noise ratio using AI noise reduction RNNnoise. The current default model is ok for speech, but not suitable for listening to music.
 
