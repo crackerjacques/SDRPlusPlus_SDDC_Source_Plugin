@@ -1,8 +1,6 @@
 # Please type ldd pluginname.so before use.
 
-To resolve the various Dependencies, each folder has a link to the library.
-
-**like this**
+Check dependencies **like this**
 ```
 $ ldd sdaudio_sink.so
 	linux-vdso.so.1 (0x00007ffd137d5000)
@@ -52,3 +50,4 @@ $ ldd sdaudio_sink.so
 	libgpg-error.so.0 => /lib/x86_64-linux-gnu/libgpg-error.so.0 (0x0000792dfb275000)
 	libmd.so.0 => /lib/x86_64-linux-gnu/libmd.so.0 (0x0000792dfb266000)
 ```
+To resolve the various Dependencies, each folder has a link to the library.
