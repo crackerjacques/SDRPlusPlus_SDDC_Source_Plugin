@@ -17,7 +17,7 @@ these numbers are just the right interval for a bluff ghost hunter TV program.
 # HOWTO
 
 ```
-cp -r SDRPlusPlus_SDDC_Source_Plugin/evp_detector SDRPlusPlus/source_modules
+cp -r SDRPlusPlus_SDDC_Source_Plugin/evp_detector SDRPlusPlus/misc_modules
 
 ```
 
@@ -30,7 +30,7 @@ and
 
 ```
 if (OPT_BUILD_EVP_DETECTOR)
-add_subdirectory("source_modules/evp_detector")
+add_subdirectory("misc_modules/evp_detector")
 endif (OPT_BUILD_EVP_DETECTOR)
 ```
 
