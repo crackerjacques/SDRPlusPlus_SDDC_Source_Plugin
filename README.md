@@ -7,7 +7,7 @@ Whenever I feel like it, I maintain it or add new item and features.
 
 ## Operation is currently only confirmed in these environments
 
-**Ubuntu 24.04 on x64/ Arch Linux on Raspberry Pi 5**
+**Ubuntu 24.04 on x64/ Arch Linux on Raspberry Pi 5 /RaspiOS Bookworm on Raspberry Pi4B**
 
 # WIP.
 Because I don't have an RX 888 in my house.
