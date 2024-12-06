@@ -607,7 +607,7 @@ void SDAudioSink::menuHandler() {
         }
         if (highpassEnabled) {
             ImGui::SetNextItemWidth(halfWidth);
-            if (ImGui::SliderFloat("HPF (Hz)", &highpassFreq, 10.0f, 1000.0f, "%.1f")) {
+            if (ImGui::SliderFloat("HPF (Hz)", &highpassFreq, 10.0f, 200.0f, "%.1f")) {
                 highpassFilter->setCutoff(highpassFreq);
                 config.acquire();
                 config.conf[_streamName]["highpass_freq"] = highpassFreq;
@@ -631,35 +631,76 @@ void SDAudioSink::menuHandler() {
             }
         }
 
-        // Notch filter
-        if (ImGui::Checkbox("Enable Notch", &notchEnabled)) {
-            config.acquire();
-            config.conf[_streamName]["notch_enabled"] = notchEnabled;
-            config.release(true);
-        }
-        if (notchEnabled) {
-            bool notchChanged = false;
-            ImGui::SetNextItemWidth(halfWidth);
-            if (ImGui::SliderFloat("Notch Freq (Hz)", &notchFreq, 45.0f, 200.0f, "%.1f")) {
-                notchChanged = true;
-                config.acquire();
-                config.conf[_streamName]["notch_freq"] = notchFreq;
-                config.release(true);
+                 // Notch filter
+                if (ImGui::Checkbox("Enable Notch", &notchEnabled)) {
+                    config.acquire();
+                    config.conf[_streamName]["notch_enabled"] = notchEnabled;
+                    config.release(true);
+                }
+                if (notchEnabled) {
+                    bool notchChanged = false;
+                    
+                    // Notch Frequency
+                    {
+                        ImGui::SetNextItemWidth(menuWidth * 0.5f);
+                        if (ImGui::InputFloat("Notch (Hz)", &notchFreq, 0.0f, 0.0f, "%.3f")) {
+                            notchFreq = std::clamp(notchFreq, 45.0f, 20000.0f);
+                            notchChanged = true;
+                            config.acquire();
+                            config.conf[_streamName]["notch_freq"] = notchFreq;
+                            config.release(true);
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("-##notch_freq")) {
+                            notchFreq = std::max(45.0f, notchFreq - 1.0f);
+                            notchChanged = true;
+                            config.acquire();
+                            config.conf[_streamName]["notch_freq"] = notchFreq;
+                            config.release(true);
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::Button("+##notch_freq")) {
+                            notchFreq = std::min(2000.0f, notchFreq + 1.0f);
+                            notchChanged = true;
+                            config.acquire();
+                            config.conf[_streamName]["notch_freq"] = notchFreq;
+                            config.release(true);
+                        }
+                    }
+                // Notch Q
+                {
+                    ImGui::SetNextItemWidth(menuWidth * 0.5f);
+                    if (ImGui::InputFloat("Notch Q", &notchQ, 0.0f, 0.0f, "%.3f")) {
+                        notchQ = std::clamp(notchQ, 10.0f, 100.0f);
+                        notchChanged = true;
+                        config.acquire();
+                        config.conf[_streamName]["notch_q"] = notchQ;
+                        config.release(true);
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("-##notch_q")) {
+                        notchQ = std::max(10.0f, notchQ - 1.0f);
+                        notchChanged = true;
+                        config.acquire();
+                        config.conf[_streamName]["notch_q"] = notchQ;
+                        config.release(true);
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("+##notch_q")) {
+                        notchQ = std::min(100.0f, notchQ + 1.0f);
+                        notchChanged = true;
+                        config.acquire();
+                        config.conf[_streamName]["notch_q"] = notchQ;
+                        config.release(true);
+                    }
+                }
+
+                if (notchChanged) {
+                    notchFilter->setFrequency(notchFreq);
+                    notchFilter->setQ(notchQ);
+                }
             }
 
-            ImGui::SetNextItemWidth(halfWidth);
-            if (ImGui::SliderFloat("Notch Q", &notchQ, 10.0f, 100.0f, "%.1f")) {
-                notchChanged = true;
-                config.acquire();
-                config.conf[_streamName]["notch_q"] = notchQ;
-                config.release(true);
-            }
-
-            if (notchChanged) {
-                notchFilter->setFrequency(notchFreq);
-                notchFilter->setQ(notchQ);
-            }
-        }
 
         ImGui::TreePop();
     }
