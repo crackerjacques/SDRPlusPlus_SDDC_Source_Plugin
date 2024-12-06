@@ -461,10 +461,13 @@ void SDAudioSink::calculateGateCoefficients() {
 float SDAudioSink::processGate(float input, float& currentGain) {
     float dbInput = 20.0f * std::log10(std::abs(input) + 1e-10f);
     
-    float targetGain = 1.0f;
+    float targetGain;
     if (dbInput < gateThreshold) {
         float dbReduction = (dbInput - gateThreshold) * (1.0f - 1.0f/gateRatio);
         targetGain = std::pow(10.0f, dbReduction/20.0f);
+        targetGain = std::min(targetGain, 0.001f);
+    } else {
+        targetGain = 1.0f;
     }
     
     if (targetGain < currentGain) {
@@ -473,7 +476,7 @@ float SDAudioSink::processGate(float input, float& currentGain) {
         currentGain = gateReleaseCoeff * currentGain + (1.0f - gateReleaseCoeff) * targetGain;
     }
     
-    return input * std::max(currentGain, minGateGain);
+    return input * currentGain;
 }
 
 float SDAudioSink::calculateRMS(const float* buffer, int nFrames) {
