@@ -19,6 +19,8 @@ And I don't have enough pocket money to order at the moment.
 
 **NRAudio Sink Plugin** - Improves signal-to-noise ratio using AI noise reduction RNNnoise. The current default model is ok for speech, but not suitable for listening to music.
 
+**SDAudio Sink Plugin**  - Old-school Noise reduction. Spectral denoise, filter, gate.
+
 # HOWTO
 
 Preparing
