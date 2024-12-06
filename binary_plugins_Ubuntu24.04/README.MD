@@ -2,7 +2,7 @@
 
 **like this**
 ```
- jackheinlein@1605B  ~/binary_plugins  ldd sdaudio_sink.so
+$ ldd sdaudio_sink.so
 	linux-vdso.so.1 (0x00007ffd137d5000)
 	libsdrpp_core.so => /lib/libsdrpp_core.so (0x0000792dfca00000)
 	librtaudio.so.6 => /lib/x86_64-linux-gnu/librtaudio.so.6 (0x0000792dfd205000)
