@@ -907,7 +907,7 @@ public:
         this->name = name;
         provider.create = create_sink;
         provider.ctx = this;
-        sigpath::sinkManager.registerSinkProvider("NRAudio", provider);
+        sigpath::sinkManager.registerSinkProvider("RNNoise Audio", provider);
     }
 
     ~NRAudioSinkModule() {
