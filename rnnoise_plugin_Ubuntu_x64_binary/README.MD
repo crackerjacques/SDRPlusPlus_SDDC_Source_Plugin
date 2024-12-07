@@ -1,7 +1,7 @@
 # Plugin Binary file installer
 
 
-If you already have rnnoise installed,
+If you already have rnnoise( https://github.com/xiph/rnnoise.git )installed,
 
 ```
 sudo dpkg -L sdrpp-rnnoise-plugin.deb
