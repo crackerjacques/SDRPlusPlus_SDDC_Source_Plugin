@@ -5,7 +5,7 @@ sudo apt-get update
 sudo apt-get install -y \
     librtaudio-dev \
     libvolk-dev \
-    libjack-dev \
+    libjackd2-dev \
     libpulse-dev \
     libasound2-dev \
     libglfw3-dev \
